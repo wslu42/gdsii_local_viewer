@@ -14,6 +14,10 @@ import { isIgnoredLayer } from "./ignoredLayers.js";
 export function setupControls(renderer) {
   const ui = getUi();
 
+  ui.fileInput.addEventListener("click", () => {
+    ui.fileInput.value = "";
+  });
+
   ui.fileInput.addEventListener("change", async () => {
     const file = ui.fileInput.files && ui.fileInput.files[0];
     if (!file) return;
@@ -21,6 +25,7 @@ export function setupControls(renderer) {
   });
 
   ui.demoButton.addEventListener("click", () => {
+    ui.fileInput.value = "";
     resetLayoutState();
     appState.fileName = "Built-in demo";
     appState.layout = createDemoLayout();
