@@ -67,6 +67,7 @@ The parser logs or ignores unsupported non-rendered records such as `NODE`, `BOX
 
 - Canvas 2D rendering is intended for quick previews, not KLayout-level inspection.
 - `BOUNDARY` polygons, `PATH` elements, and `TEXT` labels are rendered. `BOX` and `NODE` are parsed as known records but not rendered.
+- Layers listed in `ignoredLayers.js` are hidden by default and can be re-enabled from the layer panel.
 - Hierarchy expansion has a default depth limit of 10 and a polygon guard of 50,000 polygons.
 - AREF support is basic and intended for common rectangular arrays.
 - Layer names, element properties, text alignment details, advanced path end extensions, and boolean geometry are not implemented.

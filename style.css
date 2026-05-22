@@ -180,6 +180,15 @@ button:disabled {
   height: 20px;
 }
 
+.layer-row-ignored {
+  background: #f8fafc;
+}
+
+.layer-row-ignored .layer-name,
+.layer-row-ignored .layer-count {
+  color: var(--muted);
+}
+
 .swatch {
   width: 16px;
   height: 16px;

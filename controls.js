@@ -9,6 +9,7 @@ import {
 } from "./layoutModel.js";
 import { colorForLayerKey } from "./rendererCanvas.js";
 import { parseGds } from "./gdsParser.js";
+import { isIgnoredLayer } from "./ignoredLayers.js";
 
 export function setupControls(renderer) {
   const ui = getUi();
@@ -113,7 +114,9 @@ function rebuildExpansion(renderer, ui, fit) {
   const existingVisibility = new Map(appState.layerVisibility);
   appState.layerVisibility = new Map();
   for (const layer of appState.expanded.layers) {
-    appState.layerVisibility.set(layer.key, existingVisibility.get(layer.key) !== false);
+    const hasExistingValue = existingVisibility.has(layer.key);
+    const defaultVisible = !isIgnoredLayer(layer.layer, layer.datatype);
+    appState.layerVisibility.set(layer.key, hasExistingValue ? existingVisibility.get(layer.key) !== false : defaultVisible);
   }
 
   populateLayers(ui, renderer);
@@ -154,6 +157,7 @@ function populateLayers(ui, renderer) {
   for (const layer of appState.expanded.layers) {
     const row = document.createElement("label");
     row.className = "layer-row";
+    if (isIgnoredLayer(layer.layer, layer.datatype)) row.classList.add("layer-row-ignored");
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -174,7 +178,9 @@ function populateLayers(ui, renderer) {
 
     const count = document.createElement("span");
     count.className = "layer-count";
-    count.textContent = layer.count.toLocaleString();
+    count.textContent = isIgnoredLayer(layer.layer, layer.datatype)
+      ? "ignored"
+      : layer.count.toLocaleString();
 
     row.append(checkbox, swatch, name, count);
     ui.layerList.appendChild(row);
