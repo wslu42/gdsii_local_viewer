@@ -40,8 +40,11 @@ Phase 1 parses enough binary GDSII for common polygon-based layouts:
 - `BGNSTR`
 - `STRNAME`
 - `BOUNDARY`
+- `PATH`
+- `TEXT`
 - `LAYER`
 - `DATATYPE`
+- `WIDTH`
 - `XY`
 - `ENDEL`
 - `SREF`
@@ -51,18 +54,22 @@ Phase 1 parses enough binary GDSII for common polygon-based layouts:
 - `STRANS`
 - `MAG`
 - `ANGLE`
+- `TEXTTYPE`
+- `PRESENTATION`
+- `STRING`
+- `PATHTYPE`
 - `ENDSTR`
 - `ENDLIB`
 
-The parser logs or ignores unsupported records such as `TEXT`, `PATH`, `NODE`, `BOX`, `PROPATTR`, and `PROPVALUE`.
+The parser logs or ignores unsupported non-rendered records such as `NODE`, `BOX`, `PROPATTR`, and `PROPVALUE`.
 
 ## Known Limitations
 
 - Canvas 2D rendering is intended for quick previews, not KLayout-level inspection.
-- `BOUNDARY` polygons are supported; `PATH`, `TEXT`, `BOX`, and `NODE` are not rendered.
+- `BOUNDARY` polygons, `PATH` elements, and `TEXT` labels are rendered. `BOX` and `NODE` are parsed as known records but not rendered.
 - Hierarchy expansion has a default depth limit of 10 and a polygon guard of 50,000 polygons.
 - AREF support is basic and intended for common rectangular arrays.
-- Layer names, properties, text labels, path widths, datatypes beyond display grouping, and boolean geometry are not implemented.
+- Layer names, element properties, text alignment details, advanced path end extensions, and boolean geometry are not implemented.
 - Very large GDS files may be slow or memory-heavy on iOS Safari.
 - No OASIS support in Phase 1.
 

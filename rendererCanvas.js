@@ -99,7 +99,7 @@ export class CanvasRenderer {
     this.drawGrid(width, height);
 
     const expanded = this.state.expanded;
-    if (!expanded || !expanded.polygons.length) {
+    if (!expanded || !this.hasRenderableItems(expanded)) {
       this.drawEmptyMessage();
       this.notifyViewChanged();
       return;
@@ -125,7 +125,61 @@ export class CanvasRenderer {
       ctx.stroke();
     }
 
+    this.drawPaths(expanded.paths || []);
+    this.drawTexts(expanded.texts || []);
+
     this.notifyViewChanged();
+  }
+
+  hasRenderableItems(expanded) {
+    return Boolean(
+      expanded.polygons.length ||
+      (expanded.paths && expanded.paths.length) ||
+      (expanded.texts && expanded.texts.length)
+    );
+  }
+
+  drawPaths(paths) {
+    const ctx = this.ctx;
+    for (const pathItem of paths) {
+      const key = layerKey(pathItem.layer, pathItem.datatype);
+      if (this.state.layerVisibility.get(key) === false || pathItem.xy.length < 2) continue;
+      ctx.save();
+      ctx.beginPath();
+      const first = this.worldToScreen(pathItem.xy[0]);
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < pathItem.xy.length; i += 1) {
+        const point = this.worldToScreen(pathItem.xy[i]);
+        ctx.lineTo(point.x, point.y);
+      }
+      ctx.strokeStyle = colorForLayerKey(key, 0.95);
+      ctx.lineWidth = Math.max(1, Math.abs(pathItem.width || 0) * this.state.view.scale);
+      ctx.lineJoin = pathItem.pathtype === 2 ? "round" : "miter";
+      ctx.lineCap = pathItem.pathtype === 1 || pathItem.pathtype === 2 ? "round" : "butt";
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawTexts(texts) {
+    const ctx = this.ctx;
+    for (const label of texts) {
+      const key = layerKey(label.layer, label.datatype);
+      if (this.state.layerVisibility.get(key) === false || !label.text) continue;
+      const point = this.worldToScreen(label.origin);
+      const fontSize = clamp(12 * Math.max(0.8, label.mag || 1), 10, 28);
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.rotate(-(label.angle || 0) * Math.PI / 180);
+      ctx.fillStyle = colorForLayerKey(key, 0.95);
+      ctx.strokeStyle = "rgba(16,20,24,0.9)";
+      ctx.lineWidth = 3;
+      ctx.font = fontSize + "px system-ui, sans-serif";
+      ctx.textBaseline = "bottom";
+      ctx.strokeText(label.text, 0, 0);
+      ctx.fillText(label.text, 0, 0);
+      ctx.restore();
+    }
   }
 
   drawGrid(width, height) {

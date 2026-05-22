@@ -14,18 +14,31 @@ const RECORD_TYPES = {
   0x0c: "TEXT",
   0x0d: "LAYER",
   0x0e: "DATATYPE",
+  0x0f: "WIDTH",
   0x10: "XY",
   0x11: "ENDEL",
   0x12: "SNAME",
   0x13: "COLROW",
-  0x1a: "NODE",
-  0x1c: "BOX",
-  0x1a: "NODE",
-  0x1f: "STRANS",
-  0x20: "MAG",
-  0x21: "ANGLE",
+  0x15: "NODE",
+  0x16: "TEXTTYPE",
+  0x17: "PRESENTATION",
+  0x19: "STRING",
+  0x1a: "STRANS",
+  0x1b: "MAG",
+  0x1c: "ANGLE",
+  0x1f: "REFLIBS",
+  0x20: "FONTS",
+  0x21: "PATHTYPE",
+  0x22: "GENERATIONS",
+  0x26: "ELFLAGS",
+  0x2a: "NODETYPE",
   0x2b: "PROPATTR",
-  0x2c: "PROPVALUE"
+  0x2c: "PROPVALUE",
+  0x2d: "BOX",
+  0x2e: "BOXTYPE",
+  0x2f: "PLEX",
+  0x30: "BGNEXTN",
+  0x31: "ENDEXTN"
 };
 
 const DATA_TYPES = {
@@ -37,7 +50,19 @@ const DATA_TYPES = {
   0x06: "ASCII"
 };
 
-const IGNORED_RECORDS = new Set(["TEXT", "PATH", "NODE", "BOX", "PROPATTR", "PROPVALUE"]);
+const IGNORED_RECORDS = new Set([
+  "NODE",
+  "BOX",
+  "GENERATIONS",
+  "ELFLAGS",
+  "NODETYPE",
+  "BOXTYPE",
+  "PLEX",
+  "BGNEXTN",
+  "ENDEXTN",
+  "PROPATTR",
+  "PROPVALUE"
+]);
 
 export function parseGds(arrayBuffer) {
   const view = new DataView(arrayBuffer);
@@ -95,6 +120,8 @@ export function parseGds(arrayBuffer) {
           currentCell = {
             name,
             polygons: [],
+            paths: [],
+            texts: [],
             references: [],
             bbox: null
           };
@@ -103,6 +130,22 @@ export function parseGds(arrayBuffer) {
         }
         case "BOUNDARY":
           currentElement = { kind: "BOUNDARY", layer: 0, datatype: 0, xy: [] };
+          break;
+        case "PATH":
+          currentElement = { kind: "PATH", layer: 0, datatype: 0, pathtype: 0, width: 0, xy: [] };
+          break;
+        case "TEXT":
+          currentElement = {
+            kind: "TEXT",
+            layer: 0,
+            texttype: 0,
+            presentation: 0,
+            text: "",
+            origin: { x: 0, y: 0 },
+            angle: 0,
+            mag: 1,
+            reflected: false
+          };
           break;
         case "SREF":
           currentElement = {
@@ -135,6 +178,21 @@ export function parseGds(arrayBuffer) {
         case "DATATYPE":
           if (currentElement) currentElement.datatype = readInt2(view, dataOffset);
           break;
+        case "TEXTTYPE":
+          if (currentElement) currentElement.texttype = readInt2(view, dataOffset);
+          break;
+        case "PRESENTATION":
+          if (currentElement) currentElement.presentation = view.getUint16(dataOffset, false);
+          break;
+        case "PATHTYPE":
+          if (currentElement) currentElement.pathtype = readInt2(view, dataOffset);
+          break;
+        case "WIDTH":
+          if (currentElement) currentElement.width = readInt4(view, dataOffset);
+          break;
+        case "STRING":
+          if (currentElement) currentElement.text = readString(view, dataOffset, dataLength);
+          break;
         case "SNAME":
           if (currentElement) currentElement.cellName = readString(view, dataOffset, dataLength);
           break;
@@ -161,6 +219,10 @@ export function parseGds(arrayBuffer) {
             const points = readXY(view, dataOffset, dataLength);
             if (currentElement.kind === "BOUNDARY") {
               currentElement.xy = points;
+            } else if (currentElement.kind === "PATH") {
+              currentElement.xy = points;
+            } else if (currentElement.kind === "TEXT") {
+              currentElement.origin = points[0] || currentElement.origin;
             } else if (currentElement.kind === "SREF") {
               currentElement.origin = points[0] || currentElement.origin;
             } else if (currentElement.kind === "AREF") {
@@ -193,7 +255,7 @@ export function parseGds(arrayBuffer) {
   }
 
   for (const cell of Object.values(layout.cells)) {
-    cell.bbox = bboxForPolygons(cell.polygons);
+    cell.bbox = bboxForCell(cell);
   }
 
   if (unsupported.size) {
@@ -224,6 +286,40 @@ function finishElement(cell, element, warnings) {
       bbox: bboxForPoints(xy)
     };
     cell.polygons.push(polygon);
+    return;
+  }
+
+  if (element.kind === "PATH") {
+    if (element.xy.length < 2) {
+      warnings.push("Skipped a path with fewer than 2 points in " + cell.name + ".");
+      return;
+    }
+    const width = Math.abs(element.width || 0);
+    const path = {
+      layer: element.layer || 0,
+      datatype: element.datatype || 0,
+      pathtype: element.pathtype || 0,
+      width,
+      xy: element.xy.slice(),
+      bbox: bboxForPath(element.xy, width)
+    };
+    cell.paths.push(path);
+    return;
+  }
+
+  if (element.kind === "TEXT") {
+    const text = {
+      layer: element.layer || 0,
+      texttype: element.texttype || 0,
+      presentation: element.presentation || 0,
+      text: element.text || "",
+      origin: element.origin,
+      angle: element.angle || 0,
+      mag: element.mag || 1,
+      reflected: Boolean(element.reflected),
+      bbox: bboxForText(element.origin)
+    };
+    cell.texts.push(text);
     return;
   }
 
@@ -349,6 +445,34 @@ function bboxForPolygons(polygons) {
     bbox = mergeBbox(bbox, polygon.bbox);
   }
   return bbox;
+}
+
+function bboxForCell(cell) {
+  let bbox = null;
+  for (const polygon of cell.polygons) bbox = mergeBbox(bbox, polygon.bbox);
+  for (const path of cell.paths) bbox = mergeBbox(bbox, path.bbox);
+  for (const text of cell.texts) bbox = mergeBbox(bbox, text.bbox);
+  return bbox;
+}
+
+function bboxForPath(points, width) {
+  const bbox = bboxForPoints(points);
+  const pad = Math.max(0, width / 2);
+  return {
+    minX: bbox.minX - pad,
+    minY: bbox.minY - pad,
+    maxX: bbox.maxX + pad,
+    maxY: bbox.maxY + pad
+  };
+}
+
+function bboxForText(origin) {
+  return {
+    minX: origin.x,
+    minY: origin.y,
+    maxX: origin.x,
+    maxY: origin.y
+  };
 }
 
 function mergeBbox(a, b) {

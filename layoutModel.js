@@ -6,21 +6,22 @@ export function detectTopCells(layout) {
     }
   }
   const tops = Object.keys(layout.cells).filter((name) => !referenced.has(name));
-  return tops.length ? tops.sort() : Object.keys(layout.cells).sort();
+  const candidates = tops.length ? tops : Object.keys(layout.cells);
+  return candidates.sort((a, b) => topCellScore(layout, b) - topCellScore(layout, a) || a.localeCompare(b));
 }
 
-export function summarizeLayers(polygons) {
+export function summarizeLayers(items) {
   const map = new Map();
-  for (const polygon of polygons) {
-    const key = layerKey(polygon.layer, polygon.datatype);
-    const item = map.get(key) || {
+  for (const renderItem of items) {
+    const key = layerKey(renderItem.layer, renderItem.datatype);
+    const summary = map.get(key) || {
       key,
-      layer: polygon.layer,
-      datatype: polygon.datatype,
+      layer: renderItem.layer,
+      datatype: renderItem.datatype,
       count: 0
     };
-    item.count += 1;
-    map.set(key, item);
+    summary.count += 1;
+    map.set(key, summary);
   }
   return Array.from(map.values()).sort((a, b) => {
     if (a.layer !== b.layer) return a.layer - b.layer;
@@ -32,10 +33,55 @@ export function layerKey(layer, datatype) {
   return String(layer) + "/" + String(datatype);
 }
 
+function topCellScore(layout, cellName) {
+  const cell = layout.cells[cellName];
+  if (!cell) return 0;
+  let score = 0;
+  if (/^top$/i.test(cellName)) score += 1000000000;
+  if (cellName.startsWith("$$$")) score -= 1000000;
+  score += estimateRenderableItems(layout, cellName, new Set()) * 1000;
+  score += estimateBboxArea(layout, cellName, new Set()) / 1000000;
+  return score;
+}
+
+function estimateRenderableItems(layout, cellName, seen) {
+  if (seen.has(cellName)) return 0;
+  const cell = layout.cells[cellName];
+  if (!cell) return 0;
+  seen.add(cellName);
+  let count = cell.polygons.length + (cell.paths || []).length + (cell.texts || []).length;
+  for (const ref of cell.references) {
+    const refCount = estimateRenderableItems(layout, ref.cellName, seen);
+    if (ref.type === "AREF") {
+      count += refCount * Math.max(1, ref.columns || 1) * Math.max(1, ref.rows || 1);
+    } else {
+      count += refCount;
+    }
+  }
+  seen.delete(cellName);
+  return count;
+}
+
+function estimateBboxArea(layout, cellName, seen) {
+  if (seen.has(cellName)) return 0;
+  const cell = layout.cells[cellName];
+  if (!cell || !cell.bbox) return 0;
+  seen.add(cellName);
+  const localArea = Math.max(0, cell.bbox.maxX - cell.bbox.minX) * Math.max(0, cell.bbox.maxY - cell.bbox.minY);
+  let childArea = 0;
+  for (const ref of cell.references) {
+    childArea += estimateBboxArea(layout, ref.cellName, seen);
+  }
+  seen.delete(cellName);
+  return Math.max(localArea, childArea);
+}
+
 export function expandCell(layout, topCellName, options = {}) {
   const maxDepth = Number.isFinite(options.maxDepth) ? options.maxDepth : 10;
   const polygonLimit = Number.isFinite(options.polygonLimit) ? options.polygonLimit : 50000;
   const polygons = [];
+  const paths = [];
+  const texts = [];
   const warnings = [];
   const missingRefs = new Set();
   let limitHit = false;
@@ -57,9 +103,9 @@ export function expandCell(layout, topCellName, options = {}) {
     }
 
     for (const polygon of cell.polygons) {
-      if (polygons.length >= polygonLimit) {
+      if (renderedItemCount() >= polygonLimit) {
         limitHit = true;
-        warnings.push("Polygon limit reached at " + polygonLimit.toLocaleString() + ". Rendering is truncated.");
+        warnings.push("Geometry limit reached at " + polygonLimit.toLocaleString() + " renderable items. Rendering is truncated.");
         return;
       }
       const xy = polygon.xy.map((point) => applyTransform(point, transform));
@@ -68,6 +114,48 @@ export function expandCell(layout, topCellName, options = {}) {
         datatype: polygon.datatype,
         xy,
         bbox: bboxForPoints(xy),
+        sourceCell: cellName
+      });
+    }
+
+    for (const path of cell.paths || []) {
+      if (renderedItemCount() >= polygonLimit) {
+        limitHit = true;
+        warnings.push("Geometry limit reached at " + polygonLimit.toLocaleString() + " renderable items. Rendering is truncated.");
+        return;
+      }
+      const xy = path.xy.map((point) => applyTransform(point, transform));
+      const width = Math.abs(path.width || 0) * transformScale(transform);
+      paths.push({
+        layer: path.layer,
+        datatype: path.datatype,
+        pathtype: path.pathtype || 0,
+        width,
+        xy,
+        bbox: bboxForPath(xy, width),
+        sourceCell: cellName
+      });
+    }
+
+    for (const text of cell.texts || []) {
+      if (renderedItemCount() >= polygonLimit) {
+        limitHit = true;
+        warnings.push("Geometry limit reached at " + polygonLimit.toLocaleString() + " renderable items. Rendering is truncated.");
+        return;
+      }
+      const textTransform = composeTransforms(transform, transformFromText(text));
+      const origin = applyTransform({ x: 0, y: 0 }, textTransform);
+      texts.push({
+        layer: text.layer,
+        datatype: text.texttype || 0,
+        texttype: text.texttype || 0,
+        presentation: text.presentation || 0,
+        text: text.text,
+        origin,
+        angle: rotationFromTransform(textTransform),
+        mag: transformScale(textTransform),
+        reflected: determinant(textTransform) < 0,
+        bbox: bboxForText(origin, text.text, transformScale(textTransform)),
         sourceCell: cellName
       });
     }
@@ -92,15 +180,22 @@ export function expandCell(layout, topCellName, options = {}) {
   }
 
   const bbox = bboxForPolygons(polygons);
-  const layers = summarizeLayers(polygons);
+  const fullBbox = mergeBbox(mergeBbox(bbox, bboxForPaths(paths)), bboxForTexts(texts));
+  const layers = summarizeLayers(polygons.concat(paths, texts));
   return {
     topCellName,
     polygons,
-    bbox,
+    paths,
+    texts,
+    bbox: fullBbox,
     layers,
     warnings,
     truncated: limitHit
   };
+
+  function renderedItemCount() {
+    return polygons.length + paths.length + texts.length;
+  }
 }
 
 export function createDemoLayout() {
@@ -118,6 +213,8 @@ export function createDemoLayout() {
           childPoly,
           rect(-20, -140, 20, 140, 4, 0)
         ],
+        paths: [],
+        texts: [],
         references: [],
         bbox: bboxForPolygons([childPoly, rect(-20, -140, 20, 140, 4, 0)])
       },
@@ -140,6 +237,28 @@ export function createDemoLayout() {
             { x: 1160, y: -620 },
             { x: 680, y: -760 }
           ], 6, 0)
+        ],
+        paths: [
+          path([
+            { x: -1850, y: 0 },
+            { x: -1200, y: 0 },
+            { x: -900, y: 180 },
+            { x: -450, y: 180 }
+          ], 7, 0, 70)
+        ],
+        texts: [
+          {
+            layer: 10,
+            texttype: 0,
+            datatype: 0,
+            presentation: 0,
+            text: "DEMO_TOP",
+            origin: { x: -2350, y: 1320 },
+            angle: 0,
+            mag: 1,
+            reflected: false,
+            bbox: bboxForText({ x: -2350, y: 1320 }, "DEMO_TOP", 1)
+          }
         ],
         references: [
           {
@@ -226,6 +345,18 @@ function transformFromReference(ref) {
   return composeTransforms(move, composeTransforms(rot, base));
 }
 
+function transformFromText(text) {
+  const angle = (text.angle || 0) * Math.PI / 180;
+  const mag = text.mag || 1;
+  const reflect = text.reflected ? -1 : 1;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const base = { a: mag, b: 0, c: 0, d: mag * reflect, e: 0, f: 0 };
+  const rot = { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+  const move = { a: 1, b: 0, c: 0, d: 1, e: text.origin.x, f: text.origin.y };
+  return composeTransforms(move, composeTransforms(rot, base));
+}
+
 function expandArefTransforms(ref) {
   const columns = Math.max(1, ref.columns || 1);
   const rows = Math.max(1, ref.rows || 1);
@@ -274,6 +405,18 @@ function applyTransform(point, t) {
   };
 }
 
+function transformScale(t) {
+  return Math.sqrt(Math.abs(determinant(t))) || 1;
+}
+
+function determinant(t) {
+  return t.a * t.d - t.b * t.c;
+}
+
+function rotationFromTransform(t) {
+  return Math.atan2(t.b, t.a) * 180 / Math.PI;
+}
+
 function rect(minX, minY, maxX, maxY, layer, datatype) {
   return polygon([
     { x: minX, y: minY },
@@ -289,6 +432,17 @@ function polygon(xy, layer, datatype) {
     datatype,
     xy,
     bbox: bboxForPoints(xy)
+  };
+}
+
+function path(xy, layer, datatype, width) {
+  return {
+    layer,
+    datatype,
+    pathtype: 0,
+    width,
+    xy,
+    bbox: bboxForPath(xy, width)
   };
 }
 
@@ -312,6 +466,40 @@ function bboxForPolygons(polygons) {
     bbox = mergeBbox(bbox, polygon.bbox);
   }
   return bbox;
+}
+
+function bboxForPaths(paths) {
+  let bbox = null;
+  for (const pathItem of paths) bbox = mergeBbox(bbox, pathItem.bbox);
+  return bbox;
+}
+
+function bboxForTexts(texts) {
+  let bbox = null;
+  for (const text of texts) bbox = mergeBbox(bbox, text.bbox);
+  return bbox;
+}
+
+function bboxForPath(points, width) {
+  const bbox = bboxForPoints(points);
+  const pad = Math.max(0, width / 2);
+  return {
+    minX: bbox.minX - pad,
+    minY: bbox.minY - pad,
+    maxX: bbox.maxX + pad,
+    maxY: bbox.maxY + pad
+  };
+}
+
+function bboxForText(origin, text = "", mag = 1) {
+  const size = Math.max(20, 120 * Math.max(0.2, mag));
+  const width = Math.max(size, String(text).length * size * 0.62);
+  return {
+    minX: origin.x,
+    minY: origin.y - size * 0.3,
+    maxX: origin.x + width,
+    maxY: origin.y + size
+  };
 }
 
 function mergeBbox(a, b) {

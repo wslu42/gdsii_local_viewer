@@ -123,7 +123,7 @@ function rebuildExpansion(renderer, ui, fit) {
   const warnings = []
     .concat(appState.warnings || [])
     .concat(appState.expanded.warnings || []);
-  if (!appState.expanded.polygons.length) warnings.push("No polygons found in selected top cell.");
+  if (!renderedItemCount(appState.expanded)) warnings.push("No renderable geometry found in selected top cell.");
   setStatus(ui, warnings.length ? warnings.join("\n") : "Ready.", warnings.length ? "warning" : "normal");
 
   if (fit) renderer.fitToView(appState.expanded.bbox);
@@ -191,7 +191,13 @@ function updateInfo(ui) {
   ui.infoLibrary.textContent = appState.layout && appState.layout.libraryName ? appState.layout.libraryName : "-";
   ui.infoTopCell.textContent = appState.selectedTopCell || "-";
   ui.infoBbox.textContent = expanded ? formatBbox(expanded.bbox, appState.layout) : "-";
-  ui.infoPolygons.textContent = expanded ? expanded.polygons.length.toLocaleString() : "-";
+  ui.infoPolygons.textContent = expanded
+    ? [
+      expanded.polygons.length.toLocaleString() + " poly",
+      (expanded.paths || []).length.toLocaleString() + " path",
+      (expanded.texts || []).length.toLocaleString() + " text"
+    ].join(" / ")
+    : "-";
   ui.infoVisibleLayers.textContent = expanded ? visibleLayers + " / " + expanded.layers.length : "-";
   ui.infoZoom.textContent = appState.view.scale.toPrecision(4) + " px/dbu";
   ui.infoPointer.textContent = appState.layout ? formatPoint(appState.pointer, appState.layout) : "-";
@@ -242,4 +248,9 @@ function prettyBytes(bytes) {
     unit += 1;
   }
   return value.toFixed(unit ? 1 : 0) + " " + units[unit];
+}
+
+function renderedItemCount(expanded) {
+  if (!expanded) return 0;
+  return expanded.polygons.length + (expanded.paths || []).length + (expanded.texts || []).length;
 }
