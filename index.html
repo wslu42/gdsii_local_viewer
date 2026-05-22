@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GDSII Local Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">
+      <strong>GDSII Local Viewer</strong>
+      <span>Local-only viewer: your GDS file stays in this browser and is not uploaded.</span>
+    </div>
+    <label class="file-button">
+      Open GDS
+      <input id="fileInput" type="file" accept=".gds,.gdsii,application/octet-stream">
+    </label>
+    <button id="demoButton" type="button">Load Demo</button>
+    <label class="select-wrap">
+      <span>Top cell</span>
+      <select id="topCellSelect" disabled></select>
+    </label>
+    <label class="depth-wrap">
+      <span>Depth</span>
+      <input id="depthInput" type="number" min="0" max="32" value="10">
+    </label>
+    <button id="fitButton" type="button" disabled>Fit</button>
+    <button id="resetButton" type="button" disabled>Reset View</button>
+  </header>
+
+  <main class="app-shell">
+    <aside class="side-panel" aria-label="Layout layers and metadata">
+      <section class="panel-section">
+        <h2>Layers</h2>
+        <div id="layerList" class="layer-list empty">No layers loaded</div>
+      </section>
+      <section class="panel-section">
+        <h2>Info</h2>
+        <dl class="info-grid">
+          <dt>File</dt><dd id="infoFile">-</dd>
+          <dt>Library</dt><dd id="infoLibrary">-</dd>
+          <dt>Top Cell</dt><dd id="infoTopCell">-</dd>
+          <dt>BBox</dt><dd id="infoBbox">-</dd>
+          <dt>Polygons</dt><dd id="infoPolygons">-</dd>
+          <dt>Visible Layers</dt><dd id="infoVisibleLayers">-</dd>
+          <dt>Zoom</dt><dd id="infoZoom">-</dd>
+          <dt>Pointer</dt><dd id="infoPointer">-</dd>
+        </dl>
+      </section>
+      <section class="panel-section">
+        <h2>Status</h2>
+        <div id="statusBox" class="status">Ready. Open a local GDS file or load the demo.</div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap" aria-label="GDS canvas viewer">
+      <canvas id="layoutCanvas"></canvas>
+    </section>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
